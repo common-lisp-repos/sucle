@@ -15,17 +15,17 @@
 (in-package #:camera-matrix)
 
 (defstruct camera
-  (vec-position (nsb-cga:vec 0.0 0.0 0.0) :type nsb-cga:vec)
+  (vec-position (rtg-math.vector3:make 0.0 0.0 0.0) :type rtg-math.types:vec3)
 
-  (vec-up (nsb-cga:vec 0.0 1.0 0.0) :type nsb-cga:vec)
-  (vec-forward (nsb-cga:vec 1.0 0.0 0.0) :type nsb-cga:vec)
+  (vec-up (rtg-math.vector3:make 0.0 1.0 0.0) :type rtg-math.types:vec3)
+  (vec-forward (rtg-math.vector3:make 1.0 0.0 0.0) :type rtg-math.types:vec3)
 
-  (vec-noitisop (nsb-cga:vec 0.0 0.0 0.0) :type nsb-cga:vec) ;;;the negative of position
-  (matrix-player (nsb-cga:identity-matrix)) ;;positional information of camera
-  (matrix-view (nsb-cga:identity-matrix))		    ;;view matrix
-  (matrix-projection (nsb-cga:identity-matrix))	    ;;projection matrix
-  (matrix-projection-view (nsb-cga:identity-matrix)) ;;projection * view matrix
-  (matrix-projection-view-player (nsb-cga:identity-matrix))
+  (vec-noitisop (rtg-math.vector3:make 0.0 0.0 0.0) :type rtg-math.types:vec3) ;;;the negative of position
+  (matrix-player (rtg-math.matrix4:identity)) ;;positional information of camera
+  (matrix-view (rtg-math.matrix4:identity))		    ;;view matrix
+  (matrix-projection (rtg-math.matrix4:identity))	    ;;projection matrix
+  (matrix-projection-view (rtg-math.matrix4:identity)) ;;projection * view matrix
+  (matrix-projection-view-player (rtg-math.matrix4:identity))
   
   (fov (coerce (/ pi 2.0) 'single-float) :type single-float)
 
@@ -42,17 +42,18 @@
 		  (sin (/ fovy 2.0)))))
       (let ((sum (+ far near))
 	    (difference (- near far)))
-	(nsb-cga:%matrix result 
-			   (/ cot aspect) 0.0 0.0 0.0
-			   0.0 cot 0.0 0.0
-			   0.0 0.0 (/ sum difference) (/ (* 2.0 far near) difference)
-			   0.0 0.0 -1.0 0.0)))))
+	(rtg-math.matrix4.non-consing:set-components
+	 (/ cot aspect) 0.0 0.0 0.0
+	 0.0 cot 0.0 0.0
+	 0.0 0.0 (/ sum difference) (/ (* 2.0 far near) difference)
+	 0.0 0.0 -1.0 0.0
+	 result)))))
 
 (defun relative-lookat (result relative-target up)
-  (let ((camright (nsb-cga:cross-product up relative-target)))
+  (let ((camright (rtg-math.vector3:cross up relative-target)))
     (declare (dynamic-extent camright))
-    (nsb-cga:%normalize camright camright)
-    (let ((camup (nsb-cga:cross-product relative-target camright)))
+    (rtg-math.vector3.non-consing:normalize camright)
+    (let ((camup (rtg-math.vector3:cross relative-target camright)))
       (declare (dynamic-extent camup))
       (get-lookat result
 		  camright
@@ -69,41 +70,53 @@
 	(dx (aref direction 0))
 	(dy (aref direction 1))
 	(dz (aref direction 2)))    
-    (nsb-cga:%matrix result
+    (rtg-math.matrix4.non-consing:set-components
      rx ry rz 0.0
      ux uy uz 0.0
      dx dy dz 0.0
-     0.0 0.0 0.0 1.0)))
+     0.0 0.0 0.0 1.0
+     result)))
 
 
-;;#b100 - projection
-;;#b010 - rotation
-;;#b001 - translation
+
+(progn
+  ;;FIXME::RTG MATH does not have a way to multiply matrices into another matrix,
+  ;;so reimplementing here. Ripped from sb-cga
+  ;;FIXME::find a better place for this?x
+  (declaim (ftype (function
+		   (rtg-math.types:mat4 rtg-math.types:mat4 rtg-math.types:mat4)
+		   rtg-math.types:mat4)
+		  %matrix*))
+  (defun %matrix* (result left right)
+    "Multiply MATRICES. The result might not be freshly allocated if all,
+or all but one multiplicant is an identity matrix."
+    (macrolet ((inline-mul (left right dest)
+		 `(progn
+		    ,@(loop for i below 4
+			 append (loop for j below 4
+				   collect
+				     `(psetf ;;has to be psetf? not sure?
+				       (rtg-math.matrix4:mref ,dest ,j ,i)
+				       (+ ,@(loop for k below 4
+					       collect `(* (rtg-math.matrix4:mref ,left ,k ,i)
+							   (rtg-math.matrix4:mref ,right ,j ,k))))))))))
+      (inline-mul left right result)
+      result)))
 
 (defun update-matrices (camera)
-  (let ((flags #b111))
-    (let ((translation? #b001)
-	  (rotation? #b010)
-	  (projection? #b100))
-      (let ((projection-matrix (camera-matrix-projection camera))
-	    (view-matrix (camera-matrix-view camera))
-	    (projection-view-matrix (camera-matrix-projection-view camera))
-	    (projection-view-player-matrix (camera-matrix-projection-view-player camera))
-	    (player-matrix (camera-matrix-player camera))
-	    (forward (camera-vec-forward camera))
-	    (up (camera-vec-up camera)))
-	(when (logtest projection? flags)
-	  (projection-matrix projection-matrix camera))
-	(when (logtest rotation? flags)
-	  (relative-lookat view-matrix forward up))
-	(let ((num (logior rotation? projection?)))
-	  (when (logtest num flags)
-	    (nsb-cga:%matrix* projection-view-matrix projection-matrix view-matrix)))
-	(when (logtest translation? flags)
-	  (nsb-cga:%translate player-matrix (camera-vec-noitisop camera)))
-	(let ((num (logior rotation? projection? translation?)))
-	  (when (logtest num flags)
-	    (nsb-cga:%matrix* projection-view-player-matrix projection-view-matrix player-matrix)))))))
+  (let ((projection-matrix (camera-matrix-projection camera))
+	(view-matrix (camera-matrix-view camera))
+	(projection-view-matrix (camera-matrix-projection-view camera))
+	(projection-view-player-matrix (camera-matrix-projection-view-player camera))
+	(player-matrix (camera-matrix-player camera))
+	(forward (camera-vec-forward camera))
+	(up (camera-vec-up camera)))
+    (projection-matrix projection-matrix camera)
+    (relative-lookat view-matrix forward up)
+    (%matrix* projection-view-matrix projection-matrix view-matrix)
+    (rtg-math.matrix4.non-consing:set-from-translation player-matrix (camera-vec-noitisop camera))
+    (%matrix* projection-view-player-matrix
+	      projection-view-matrix player-matrix)))
 
 
 ;;;
@@ -114,7 +127,7 @@
   (let ((near-2 (* 2 near))
 	(top-bottom (- top bottom))
 	(far-near (- far near)))
-      (nsb-cga:matrix
+      (rtg-math.matrix4:make
        (/ near-2 (- right left)) 0.0 (/ (+ right left) (- right left)) 0.0
        0.0 (/ near-2 top-bottom) (/ (+ top bottom) top-bottom) 0.0
        0.0 0.0 (- (/ (+ far near) far-near)) (/ (* -2 far near) far-near)

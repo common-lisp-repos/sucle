@@ -2,6 +2,6 @@
   :author "terminal625"
   :license "MIT"
   :description "projection matrices for 3d rendering"
-  :depends-on (#:nsb-cga)
+  :depends-on (#:rtg-math)
     :components
     ((:file "camera-matrix")))
