@@ -52,7 +52,7 @@
 	      (setf unchanged-if nick))))
     (multiple-value-bind (lambda-args names)
 	(separate-bindings deps)
-      (let ((let-args (mapcar (lambda (lambda-arg name)
+       (let ((let-args (mapcar (lambda (lambda-arg name)
 				`(,lambda-arg (getfnc ',name)))
 			      lambda-args
 			      names))
@@ -80,7 +80,8 @@
 	     (make-instance
 	      ',(ecase unchanged-if
 		  ((nil) 'node)
-		  (eql 'node-eql))
+		  (eql 'node-eql)
+		  (= 'node-=))
 	      :value 
 	      (cells:c?_
 		(,scrambled-name2 cells:self)))))))))
@@ -131,6 +132,14 @@
 	  ;;:unchanged-if #'eql
 	  :accessor node-value
 	  :cell t)))
+(cells:defmodel node-= ()
+  ((update-p :cell t
+	     :initform (cells:c-in 0)
+	     :accessor node-update-p)
+   (value :initarg :value
+	  :unchanged-if #'=
+	  :accessor node-value
+	  :cell t)))
 
 (defun getfnc (name)
   (%getfnc (get-node name)))
@@ -166,9 +175,3 @@
   (dohash (name value) *function-stuff*
 	  (declare (ignorable name))
 	  (makunbound (cdr value))))
-
-(defmacro make-number-node (&body body)
-  `(make-instance
-    'node-eql
-    :value 
-    (cells:c-in ,@body)))

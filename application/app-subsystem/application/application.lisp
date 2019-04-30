@@ -72,15 +72,13 @@
 	      (window::wrapper initfun
 			       rest))))))))
 
-(deflazy w ()
+(deflazy (w :unchanged-if =) ()
   window::*width*)
-(deflazy h ()
+(deflazy (h :unchanged-if =) ()
   window::*height*)
 (defun root-window-change (w h)
-  (unless (= (getfnc 'h) h)
-    (refresh 'h t))
-  (unless (= (getfnc 'w) w)
-    (refresh 'w t)))
+  (refresh 'h t)
+  (refresh 'w t))
 
 (defparameter *quit-token* nil)
 (defmacro with-quit-token ((&optional (value '(cons "default" "quit token"))) &body body)
