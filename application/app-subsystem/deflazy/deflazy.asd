@@ -6,5 +6,4 @@
 	       #:bordeaux-threads
 	       #:cells)
   :components
-  (;;(:file "dependency-graph") ;;FIXME::remove
-   (:file "lazy-loading")))
+  ((:file "lazy-loading")))

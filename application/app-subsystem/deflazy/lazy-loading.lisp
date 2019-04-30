@@ -9,37 +9,34 @@
 (in-package :deflazy)
 
 (defvar *stuff* (make-hash-table :test 'eq))
-(defvar *function-stuff* (make-hash-table :test 'eq))
+(eval-always
+  (defvar *function-stuff* (make-hash-table :test 'eq)))
 
 (eval-always
   (defun separate-bindings (deps)
-    (let ((lambda-args ())
-	  (node-deps ()))
-      (dolist (item deps)
-	(if (symbolp item)
-	    (progn (push item lambda-args)
-		   (push item node-deps))
-	    (destructuring-bind (var dep) item
-	      (push var lambda-args)
-	      (push dep node-deps))))
-      (values lambda-args
-	      node-deps))))
+    (values (mapcar (lambda (x)
+		      (etypecase x
+			(symbol x)
+			(list (first x))))
+		    deps)
+	    (mapcar (lambda (x)
+		      (etypecase x
+			(symbol x)
+			(list (second x))))
+		    deps))))
 
-(progn
-  (defun get-node (name)
-    (gethash name *stuff*))
-  (defun name-defined-p (name)
-    (multiple-value-bind (value existsp)
-	(gethash name *stuff*)
-      (declare (ignore value))
-      existsp))
-  (defmacro define-named-node (name form)
-    (with-gensyms (fun)
-      `(let ((,fun (lambda () ,form)))
-	 (setf (gethash ',name *function-stuff*)
-	       ,fun)
-	 (setf (gethash ',name *stuff*)
-	       (funcall ,fun))))))
+(defun get-node (name)
+  (multiple-value-bind (value existsp) (gethash name *stuff*)
+    (if existsp
+	value
+	(progn
+	  (multiple-value-bind (fun existsp) (gethash name *function-stuff*)
+	    (if existsp
+		(let ((new-value (funcall (car fun))))
+		  (setf (gethash name *stuff*)
+			new-value)
+		  new-value)
+		(error "no deflazy node defined named ~s" name)))))))
 
 ;;deflazy can take multiple forms:
 ;;(deflazy name ((nick name) other))
@@ -58,11 +55,20 @@
       (let ((let-args (mapcar (lambda (lambda-arg name)
 				`(,lambda-arg (getfnc ',name)))
 			      lambda-args
-			      names)))
+			      names))
+	    (dummy-redefinition-node (symbolicate2 `("%*%" ,name "-deflazy-redefine%*%")))
+	    (scrambled-name (symbolicate2 `("%*%deflazy-function-" ,name "-deflazy-function%*%"))))
 	`(progn
-	   (when (name-defined-p ',name)
-	     (%refresh ',name))
-	   (define-named-node ,name
+	   (remhash ',name *stuff*)
+	   (setf (gethash ',name *function-stuff*)
+		 (cons ',scrambled-name ',dummy-redefinition-node))
+	   (defparameter ,dummy-redefinition-node
+	     (if (boundp ',dummy-redefinition-node)
+		 (let ((old-value (symbol-value ',dummy-redefinition-node)))
+		   (%%refresh old-value)
+		   old-value)
+		 (make-instance 'node :value (cells:c? "nothing"))))
+	   (defun ,scrambled-name ()
 	     (make-instance
 	      ',(ecase unchanged-if
 		  ((nil) 'node)
@@ -72,6 +78,7 @@
 		(let ,let-args
 		  (declare (ignorable ,@lambda-args))
 		  (node-update-p cells:self)
+		  (node-update-p ,dummy-redefinition-node)
 		  (locally
 		      ,@gen-forms))))))))))
 
@@ -141,18 +148,20 @@
   (incf (node-update-p node)))
 
 ;;test cases for deflazy
-(deflazy (bar :unchanged-if eql) () 12423)
+(deflazy (bar :unchanged-if eql) () 122242344)
 (deflazy foobar (bar)
   (+ 9 (print bar)))
+
+(deflazy noop () "wat")
 
 ;;FIXME::does not actually work, or does it?
 ;;Does not clean up cells, TODO?
 (defun destroy-all ()
   (cells::cells-reset)
   (clrhash *stuff*)
-  (dohash (name fun) *function-stuff*
-	  (setf (gethash name *stuff*)
-		(funcall fun))))
+  (dohash (name value) *function-stuff*
+	  (declare (ignorable name))
+	  (makunbound (cdr value))))
 
 (defmacro make-number-node (&body body)
   `(make-instance
