@@ -8,23 +8,8 @@
 
 (in-package :deflazy)
 
-;;;;;TODO: clean this area up with dependency graph
-;;#+nil
 (defvar *stuff* (make-hash-table :test 'eq))
 (defvar *function-stuff* (make-hash-table :test 'eq))
-#+nil
-(defmacro deflazy (name (&rest deps) &rest gen-forms)
-  `(eval-when (:load-toplevel :execute)
-     (let ((dependency-graph::*namespace* *stuff*))
-       (refresh-new-node ',name)
-       ,(multiple-value-bind
-	 (fun node-deps) (dependency-graph::%defnode deps gen-forms)
-	  `(dependency-graph::redefine-node ,fun ',node-deps ',name)))))
-#+nil
-(defun %defnode (deps body)
-  (multiple-value-bind (lambda-args node-deps) (separate-bindings deps)
-    (values `(lambda ,lambda-args ,@body)
-	    node-deps)))
 
 (eval-always
   (defun separate-bindings (deps)
@@ -39,14 +24,6 @@
 	      (push dep node-deps))))
       (values lambda-args
 	      node-deps))))
-#+nil
-(progn
-  (defun get-node (name)
-    (symbol-value name))
-  (defun name-defined-p (name)
-    (boundp name))
-  (defmacro define-named-node (name &body body)
-    `(defparameter ,name ,@body)))
 
 (progn
   (defun get-node (name)
@@ -98,13 +75,6 @@
 		  (locally
 		      ,@gen-forms))))))))))
 
-;;;;queue node to be unloaded if it already has stuff in it
-#+nil
-(defun refresh-new-node (name)
-  (let ((node (dependency-graph::ensure-node name *stuff*)))
-    (unless (= 0 (dependency-graph::timestamp node))
-      (refresh name))))
-
 (defparameter *refresh* (make-hash-table :test 'eq))
 (defparameter *refresh-lock* (bordeaux-threads:make-recursive-lock "refresh"))
 (defun refresh (name &optional (main-thread nil))
@@ -121,35 +91,9 @@
 		(%refresh name))
 	(clrhash *refresh*)))))
 
-#+nil
-(defun %refresh (name)
-  (let ((node (dependency-graph::get-node name *stuff*)))
-    (when node
-      (dependency-graph::touch-node node)
-      (clean-and-invalidate-node node)
-      (dependency-graph::map-dependents2
-       name
-       #'clean-and-invalidate-node
-       #'dependency-graph::dirty-p
-       *stuff*))))
-
-#+nil
-(defun getfnc (name)
-  (dependency-graph::get-value name *stuff*))
-
 (defgeneric cleanup-node-value (object))
 (defmethod cleanup-node-value ((object t))
   (declare (ignorable object)))
-#+nil
-(defun cleanup-node (node)
-  (let ((value (dependency-graph::value node)))
-    (cleanup-node-value value)))
-#+nil
-(defun clean-and-invalidate-node (node)
-  (when (dependency-graph::state node)
-    (cleanup-node node))
-  (dependency-graph::%invalidate-node node))
-
 
 #+nil ;;attempt to make it so when code is reevaluated, all cells defined within get updated
 (defmacro runtime-once-only (&body body)
