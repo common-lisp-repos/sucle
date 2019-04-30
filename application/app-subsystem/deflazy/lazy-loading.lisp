@@ -58,26 +58,40 @@
   (defmacro define-named-node (name form)
     `(setf (gethash ',name *stuff*) ,form)))
 
+;;deflazy can take multiple forms:
+;;(deflazy name ((nick name) other))
+;;(deflazy (name :unchanged-if eql) ())
 (defmacro deflazy (name (&rest deps) &body gen-forms)
-  (multiple-value-bind (lambda-args names)
-      (separate-bindings deps)
-    (let ((let-args (mapcar (lambda (lambda-arg name)
-			      `(,lambda-arg (getfnc ',name)))
-			    lambda-args
-			    names)))
-      `(progn
-	 (when (name-defined-p ',name)
-	   (%refresh ',name))
-	 (define-named-node ,name
-	   (make-instance
-	    'node
-	    :value 
-	    (cells:c?_
-	      (let ,let-args
-		(declare (ignorable ,@lambda-args))
-		(node-update-p cells:self)
-		(locally
-		    ,@gen-forms)))))))))
+  (let ((unchanged-if nil)) ;;FIXME::backwards compatibility deflazy hack
+    (etypecase name
+      (symbol)
+      (list (destructuring-bind (unwrapped-name
+				 &key ((:unchanged-if nick) nil))
+		name
+	      (setf name unwrapped-name)
+	      (setf unchanged-if nick))))
+    (multiple-value-bind (lambda-args names)
+	(separate-bindings deps)
+      (let ((let-args (mapcar (lambda (lambda-arg name)
+				`(,lambda-arg (getfnc ',name)))
+			      lambda-args
+			      names)))
+	`(progn
+	   (when (name-defined-p ',name)
+	     (%refresh ',name))
+	   (define-named-node ,name
+	     (make-instance
+	      ',(ecase unchanged-if
+		  ((nil) 'node)
+		  (eql 'node-eql))
+	      :value 
+	      (cells:c?_
+		(let ,let-args
+		  (declare (ignorable ,@lambda-args))
+		  (node-update-p cells:self)
+		  (locally
+		      ,@gen-forms))))))))))
+
 #+nil
 (defvar foo
   (symbol-macrolet 
@@ -144,6 +158,7 @@
 	 (setf (car ,cell) t)
 	 (locally ,@body)))))
 
+
 (cells:defmodel node ()
   ((update-p :cell t
 	     :initform (cells:c-in 0)
@@ -152,10 +167,19 @@
 	  :unchanged-if (constantly nil)
 	  :accessor node-value
 	  :cell t)))
+(cells:defmodel node-eql ()
+  ((update-p :cell t
+	     :initform (cells:c-in 0)
+	     :accessor node-update-p)
+   (value :initarg :value
+	  ;;:unchanged-if #'eql
+	  :accessor node-value
+	  :cell t)))
 
 (defun getfnc (name)
   (%getfnc (get-node name)))
 (defun %getfnc (node)
+  (node-update-p node)
   (node-value node))
 
 (cells:defobserver value (self new-value old-value old-value-boundp)
@@ -167,6 +191,6 @@
 (defun %%refresh (node)
   (incf (node-update-p node)))
 
-(deflazy bar () 89)
+(deflazy (bar :unchanged-if eql) () 12423)
 (deflazy foobar (bar)
   (+ 9 (print bar)))
