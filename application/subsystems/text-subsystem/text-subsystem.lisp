@@ -267,8 +267,8 @@ gl_FragColor = value_out;
    '((:pmv "projection_model_view"))))
 
 ;;;;;;;;;;;;;;;;
-(defparameter *block-height* 16.0)
-(defparameter *block-width* 8.0)
+(defparameter *block-height* (deflazy::make-number-node 16.0))
+(defparameter *block-width* (deflazy::make-number-node 8.0))
 ;;;;a framebuffer is faster and allows rendering to it if thats what you want
 ;;;;but a texture is easier to maintain. theres no -ext framebuffer madness,
 ;;;;no fullscreen quad, no shader. just an opengl texture and a char-grid
@@ -314,8 +314,8 @@ gl_FragColor = value_out;
 	  (load-time-value (nsb-cga:identity-matrix))
 	  nil)
 	 (gl:uniformf (uniform 'size)
-		      (/ w *block-width*)
-		      (/ h *block-height*))))
+		      (/ w (deflazy::%getfnc *block-width*))
+		      (/ h (deflazy::%getfnc *block-height*)))))
      (gl:disable :cull-face)
      (gl:disable :depth-test)
      (gl:disable :blend)
@@ -327,8 +327,8 @@ gl_FragColor = value_out;
     (:texture-2d
      (gl:bind-texture :texture-2d (get-indirection-texture))
      (cffi:with-foreign-objects ((data :uint8 (* upw uph 4)))
-       (let* ((tempx (floatify (* upw *block-width*)))
-	      (tempy (floatify (* uph *block-height*)))
+       (let* ((tempx (floatify (* upw (deflazy::%getfnc *block-width*))))
+	      (tempy (floatify (* uph (deflazy::%getfnc *block-height*))))
 	      (bazx (floatify (/ tempx w)))
 	      (bazy (floatify (/ tempy h)))
 	      (wfloat (floatify w))

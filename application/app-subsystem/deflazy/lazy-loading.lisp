@@ -98,11 +98,6 @@
 		  (locally
 		      ,@gen-forms))))))))))
 
-#+nil
-(defvar foo
-  (symbol-macrolet 
-      (define-node )))
-
 ;;;;queue node to be unloaded if it already has stuff in it
 #+nil
 (defun refresh-new-node (name)
@@ -145,17 +140,18 @@
 (defgeneric cleanup-node-value (object))
 (defmethod cleanup-node-value ((object t))
   (declare (ignorable object)))
+#+nil
 (defun cleanup-node (node)
   (let ((value (dependency-graph::value node)))
     (cleanup-node-value value)))
-
+#+nil
 (defun clean-and-invalidate-node (node)
   (when (dependency-graph::state node)
     (cleanup-node node))
   (dependency-graph::%invalidate-node node))
 
 
-
+#+nil ;;attempt to make it so when code is reevaluated, all cells defined within get updated
 (defmacro runtime-once-only (&body body)
   (let ((cell (gensym)))
     `(let ((,cell
@@ -164,7 +160,7 @@
 	 (setf (car ,cell) t)
 	 (locally ,@body)))))
 
-
+;;TODO? have an automatic system for different comparison operators?
 (cells:defmodel node ()
   ((update-p :cell t
 	     :initform (cells:c-in 0)
@@ -188,6 +184,9 @@
   (node-update-p node)
   (node-value node))
 
+(defun (setf %getfnc) (new node)
+  (setf (node-value node) new))
+
 (cells:defobserver value (self new-value old-value old-value-boundp)
   (when old-value-boundp
     (cleanup-node-value old-value)))
@@ -197,6 +196,7 @@
 (defun %%refresh (node)
   (incf (node-update-p node)))
 
+;;test cases for deflazy
 (deflazy (bar :unchanged-if eql) () 12423)
 (deflazy foobar (bar)
   (+ 9 (print bar)))
@@ -209,3 +209,9 @@
   (dohash (name fun) *function-stuff*
 	  (setf (gethash name *stuff*)
 		(funcall fun))))
+
+(defmacro make-number-node (&body body)
+  `(make-instance
+    'node-eql
+    :value 
+    (cells:c-in ,@body)))
