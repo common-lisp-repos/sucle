@@ -165,19 +165,6 @@
 	(make-node fun dependencies node)
 	node))))
 
-(defun %defnode (deps body)
-  (let ((lambda-args ())
-	(node-deps ()))
-    (dolist (item deps)
-      (if (symbolp item)
-	  (progn (push item lambda-args)
-		 (push item node-deps))
-	  (destructuring-bind (var dep) item
-	    (push var lambda-args)
-	    (push dep node-deps))))
-    (values `(lambda ,lambda-args ,@body)
-	    node-deps)))
-
 (defun touch-node (node)
   (incf (timestamp node)))
 

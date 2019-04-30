@@ -21,7 +21,7 @@
   "for objects that should be forgotten because they were
 not made in the current OpenGL context, so they are garbage"
   `(deflazy:deflazy ,name (,@deps gl-context)
-     (declare (ignorable gl-context))
+     ;;(declare (ignorable gl-context))
      ,@gen-forms))
 
 (defmethod deflazy::cleanup-node-value ((object glhelp::gl-object))
