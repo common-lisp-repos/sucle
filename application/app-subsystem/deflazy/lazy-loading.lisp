@@ -57,9 +57,10 @@
 			      lambda-args
 			      names))
 	    (dummy-redefinition-node (symbolicate2 `("%*%" ,name "-deflazy-redefine%*%")))
-	    (scrambled-name (symbolicate2 `("%*%deflazy-function-" ,name "-deflazy-function%*%"))))
+	    (scrambled-name (symbolicate2 `("%*%deflazy-function-" ,name "-deflazy-function%*%")))
+	    (scrambled-name2 (symbolicate2
+			      `("%*%deflazy-cell-function-" ,name "-deflazy-cell-function%*%"))))
 	`(progn
-	   (remhash ',name *stuff*)
 	   (setf (gethash ',name *function-stuff*)
 		 (cons ',scrambled-name ',dummy-redefinition-node))
 	   (defparameter ,dummy-redefinition-node
@@ -68,6 +69,13 @@
 		   (%%refresh old-value)
 		   old-value)
 		 (make-instance 'node :value (cells:c? "nothing"))))
+	   (defun ,scrambled-name2 (self)
+	     (let ,let-args
+	       (declare (ignorable ,@lambda-args))
+	       (node-update-p self)
+	       (node-update-p ,dummy-redefinition-node)
+	       (locally
+		   ,@gen-forms)))
 	   (defun ,scrambled-name ()
 	     (make-instance
 	      ',(ecase unchanged-if
@@ -75,12 +83,7 @@
 		  (eql 'node-eql))
 	      :value 
 	      (cells:c?_
-		(let ,let-args
-		  (declare (ignorable ,@lambda-args))
-		  (node-update-p cells:self)
-		  (node-update-p ,dummy-redefinition-node)
-		  (locally
-		      ,@gen-forms))))))))))
+		(,scrambled-name2 cells:self)))))))))
 
 (defparameter *refresh* (make-hash-table :test 'eq))
 (defparameter *refresh-lock* (bordeaux-threads:make-recursive-lock "refresh"))
@@ -140,6 +143,7 @@
 
 (cells:defobserver value (self new-value old-value old-value-boundp)
   (when old-value-boundp
+    ;;(print old-value)
     (cleanup-node-value old-value)))
 
 (defun %refresh (name)
