@@ -11,6 +11,7 @@
 ;;;;;TODO: clean this area up with dependency graph
 ;;#+nil
 (defvar *stuff* (make-hash-table :test 'eq))
+(defvar *function-stuff* (make-hash-table :test 'eq))
 #+nil
 (defmacro deflazy (name (&rest deps) &rest gen-forms)
   `(eval-when (:load-toplevel :execute)
@@ -56,7 +57,12 @@
       (declare (ignore value))
       existsp))
   (defmacro define-named-node (name form)
-    `(setf (gethash ',name *stuff*) ,form)))
+    (with-gensyms (fun)
+      `(let ((,fun (lambda () ,form)))
+	 (setf (gethash ',name *function-stuff*)
+	       ,fun)
+	 (setf (gethash ',name *stuff*)
+	       (funcall ,fun))))))
 
 ;;deflazy can take multiple forms:
 ;;(deflazy name ((nick name) other))
@@ -194,3 +200,12 @@
 (deflazy (bar :unchanged-if eql) () 12423)
 (deflazy foobar (bar)
   (+ 9 (print bar)))
+
+;;FIXME::does not actually work, or does it?
+;;Does not clean up cells, TODO?
+(defun destroy-all ()
+  (cells::cells-reset)
+  (clrhash *stuff*)
+  (dohash (name fun) *function-stuff*
+	  (setf (gethash name *stuff*)
+		(funcall fun))))
