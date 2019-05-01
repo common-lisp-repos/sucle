@@ -25,24 +25,38 @@
   (let ((hash (env-cells-nodes env)))
     (gethash name hash)))
 
-(defun resolve-function-binding (nick env)
-  ;;turn nicknames into global namespace names 
-  (let ((cell (rassoc nick (env-names-nicknames env))))
-    (if cell
-	;;FIXME::the cons cell for representing the name/nickname pair is undocumented
-	(name-pair-name cell)
-	nick)))
+(defun nicknamify (name env)
+  ;;FIXME::name doesn't do anything?
+  ;;turn global namespace names into local nicknames
+  ;;FIXME::misnomer
+  ;;(format t "~%env-tree ~a" (env-tree env))
+  (let ((alist (env-names-nicknames env)))
+    ;;(print (list name alist))
+    (let ((thing (assoc name alist)))
+      (if thing
+	  (name-pair-nick thing)
+	  name))))
 
-(defun next-env (new-name-pair env)
-  (let* ((nick (name-pair-nick new-name-pair))
-	 (subtree (find-nick-subtree nick))
+(defun next-env (name env)
+  (let* ((tree (env-tree env))
+	 (subtree (find-nick-subtree name tree))
 	 (maybe-env (tree-subtrees subtree)))
+    ;;(print (list tree name subtree))
     (if (env-p maybe-env)
 	maybe-env
-	(make-env
-	 :cells-nodes (env-cells-nodes env)
-	 :names-nicknames (env-names-nicknames env)
-	 :tree subtree))))
+	(create-env subtree
+		    (remove-if 'symbolp (collect-tree-names subtree))
+		    #+nil
+		    (nickname-foo (tree-name subtree)
+				  (env-names-nicknames env))
+		    (env-cells-nodes env)))))
+
+(defun create-env (&optional (tree *tree*) (old-nicknames (list (nickname-foo (tree-name tree) nil)))
+		     (cells-nodes (make-hash-table :test 'eq)))
+  (make-env
+   :cells-nodes cells-nodes
+   :tree tree
+   :names-nicknames old-nicknames))
 
 (eval-always
   ;;Holds the global symbol to function bindings
@@ -63,27 +77,28 @@
 			(list (second x))))
 		    deps))))
 
-(defun get-node (name &key (env *env*))
-  (multiple-value-bind (value existsp)
-      (get-env-var name env)
-    (if existsp
-	value
-	(let ((global-function-name (resolve-function-binding name env)))
+(defun get-node (global-name &key (env *env*))
+  (let ((local-name (nicknamify global-name env)))
+    (multiple-value-bind (value existsp)
+	(get-env-var local-name env)
+      (if existsp
+	  value
 	  (multiple-value-bind (fun existsp)
-	      (gethash global-function-name *function-stuff*)
+	      (gethash global-name *function-stuff*)
 	    (if existsp
 		(let* (;;FIXME::the cons cell for representing the name/nickname pair is undocumented
-		       (next-stack-value (make-name-pair global-function-name name))
+		       ;;(next-stack-value (make-name-pair global-name local-name))
 		       (new-value
-			(let ((*name-stack*
+			(let (#+nil
+			      (*name-stack*
 			       (cons next-stack-value *name-stack*))
-			      (*env* (next-env next-stack-value env)))
+			      (*env* env))
 			  (funcall (car fun)))))
-		  (set-env-var name
+		  (set-env-var local-name
 			       new-value
 			       env)
 		  new-value)
-		(error "no deflazy node defined named ~s" global-function-name)))))))
+		(error "no deflazy node defined named ~s" global-name)))))))
 
 ;;deflazy can take multiple forms:
 ;;(deflazy name ((nick name) other))
@@ -126,7 +141,7 @@
 	       (locally
 		   ,@gen-forms)))
 	   (defun ,scrambled-name ()
-	     (let ((captured-name-stack *name-stack*)
+	     (let (;;(captured-name-stack *name-stack*)
 		   (captured-env *env*))
 	       (make-instance
 		',(ecase unchanged-if
@@ -135,8 +150,9 @@
 		    (= 'node-=))
 		:value 
 		(cells:c?_
-		  (let ((*env* captured-env)
-			(*name-stack* captured-name-stack))
+		  (let ((*env* (next-env ',name captured-env))
+			;;(*name-stack* captured-name-stack)
+			)
 		    (,scrambled-name2 cells:self)))))))))))
 
 (defun injected-fun ()
@@ -227,9 +243,9 @@
 
 ;;FIXME::does not actually work, or does it?
 ;;Does not clean up cells, TODO?
-(defun destroy-all (&key (env *env*))
+(defun destroy-all ()
   (cells::cells-reset)
-  (clrhash env)
+  (setf *env* (make-env))
   (dohash (name value) *function-stuff*
 	  (declare (ignorable name))
 	  (makunbound (cdr value))))
@@ -251,11 +267,12 @@
       (quux ()))
      ((test1) ()
       (foobar ()))))
-  '((test2 . top)
-    ((test0 . test0)
-     ((quux . quux-0)))
-    ((test1 . test100)
-     ((quux . quux-1)))))
+  '(()
+    ((test2 . top)
+     ((test0 . test0)
+      ((quux . quux-0)))
+     ((test1 . test100)
+      ((quux . quux-1))))))
 (defun tree-subtrees (tree)
   (cdr tree))
 (defun tree-name (tree)
@@ -266,14 +283,24 @@
   (car name-pair))
 (defun name-pair-nick (name-pair)
   (cdr name-pair))
+(deftype name-pair () '(cons symbol symbol))
+(defun nick (name-pair-or-sym)
+  (etypecase name-pair-or-sym
+    (symbol name-pair-or-sym)
+    (name-pair (name-pair-nick name-pair-or-sym))))
+
 (defun find-nick-subtree (nick &optional (tree *tree*))
   ;;(format t "~%nick-subtree ~a ~a" list nick)
   (find-if (lambda (x)
 	     (let ((name (tree-name x)))
 	       (etypecase name
 		 (symbol (eq nick name))
-		 (list (eq nick (name-pair-nick name))))))
+		 (list (eq nick (name-pair-name name))))))
 	   (tree-subtrees tree)))
+(defun subtree-names (&optional (tree *tree*))
+  ;;(format t "~%nick-subtree ~a ~a" list nick)
+  (mapcar #'tree-name
+	  (tree-subtrees tree)))
 (defun collect-tree-names (&optional (tree *tree*))
   (let ((pairs ()))
     (labels ((walk (tree)
@@ -282,15 +309,22 @@
 		 (walk subtree))))
       (walk tree))
     pairs))
-(defun create-env (&optional (tree *tree*))
-  (make-env
-   :names-nicknames
-   (remove-if 'symbolp (walk-tree-stop-before-env tree))
-   :tree tree))
+
+(defun nickname-foo (name-pair value)
+  (if (typep name-pair 'name-pair)
+      (cons name-pair value)
+      value))
 (deflazy quux () 34)
 (deflazy test0 (quux) (+ quux 2))
 (deflazy test1 (quux) (+ quux 20))
 (deflazy test2 (test0 test1) (+ test0 test1))
 
-(defun test34 ()
-  (getfnc 'test2 :env (create-env *tree*)))
+;;(defparameter *tree*)
+(defun reset-enanv ()
+  (defparameter *enanv* (create-env *tree*)))
+(defun test34 (&optional (env (create-env *tree*)))
+  (getfnc 'test2 :env env))
+
+(defun test23 ()
+  (reset-enanv)
+  (test34 *enanv*))
