@@ -12,9 +12,7 @@
   ;;:framebuffer
   :texture-2d
   )
-(defparameter *text-data-type* nil)
 (glhelp:deflazy-gl text-data ()
-  (setf *text-data-type* *text-data-what-type*)
   (let ((w *text-data-width*)
 	(h *text-data-height*))
     (ecase *text-data-what-type*
@@ -27,7 +25,7 @@
   ;;;;FIXME:: getfnc must go before, because it has side effects.
   ;;;;are side effects and state unavoidable? a property of opengl?
   (let ((value (getfnc 'text-data)))
-    (ecase *text-data-type*
+    (ecase *text-data-what-type*
       (:framebuffer (glhelp::texture value))
       (:texture-2d (glhelp::handle value)))))
 
