@@ -13,9 +13,42 @@
    (cells-nodes
     (make-hash-table :test 'eq))
    (names-nicknames nil)
-   (next-env (lambda (new-depth this)
-	       (declare (ignorable new-depth))
-	       this))))
+   (next-env 'next-env-fun)
+   (tree nil)))
+(defun next-env-fun (new-depth this)
+  (declare (ignorable new-depth))
+  ;;FIXME::the cons cell for representing the name/nickname pair is undocumented
+  
+  (let* ((nick (cdr new-depth))
+	 (subtree (find-nick-subtree nick this))
+	 (namespace-data (first (second subtree))))
+    (print (list subtree new-depth))
+    (if (env-p namespace-data)
+	namespace-data
+	(make-env
+	 :names-nicknames
+	 (cond 
+	   ((eq namespace-data :new)
+	    (remove-if 'symbolp (walk-tree-stop-before-env subtree)))
+	   ((eq namespace-data nil)
+	    (env-names-nicknames this)))
+	 :tree subtree
+	 :cells-nodes
+	 (cond 
+	   ((eq namespace-data :new)
+	    (make-hash-table :test 'eq))
+	   ((eq namespace-data nil)
+	    (env-cells-nodes this)))))))
+(defun find-nick-subtree (nick &optional (env *env*))
+  (let ((list (cddr (env-tree env))))
+    (format t "~%nick-subtree ~a ~a" list nick)
+    (find-if (lambda (x)
+	       (let ((name (car x)))
+		 (etypecase name
+		   (symbol (eq nick name))
+		   (list (eq nick (cdr name))))))
+	     list)))
+
 (defparameter *env* (make-env))
 
 (defun set-env-var (name value env)
@@ -29,6 +62,7 @@
 (defun resolve-function-binding (name env)
   (let ((cell (assoc name (env-names-nicknames env))))
     (if cell
+	;;FIXME::the cons cell for representing the name/nickname pair is undocumented
 	(cdr cell)
 	name)))
 
@@ -64,7 +98,8 @@
 	    (multiple-value-bind (fun existsp)
 		(gethash global-function-name *function-stuff*)
 	      (if existsp
-		  (let* ((next-stack-value (cons name global-function-name))
+		  (let* (;;FIXME::the cons cell for representing the name/nickname pair is undocumented
+			 (next-stack-value (cons global-function-name name))
 			 (new-value
 			  (let ((*name-stack*
 				 (cons next-stack-value *name-stack*))
@@ -74,7 +109,7 @@
 				 new-value
 				 env)
 		    new-value)
-		  (error "no deflazy node defined named ~s" name))))))))
+		  (error "no deflazy node defined named ~s" global-function-name))))))))
 
 ;;deflazy can take multiple forms:
 ;;(deflazy name ((nick name) other))
@@ -131,7 +166,8 @@
 		    (,scrambled-name2 cells:self)))))))))))
 
 (defun injected-fun ()
-  (print *name-stack*))
+  ;;(print *name-stack*)
+  )
 
 (defparameter *refresh* (make-hash-table :test 'eq))
 (defparameter *refresh-lock* (bordeaux-threads:make-recursive-lock "refresh"))
@@ -226,7 +262,36 @@
 
 ;;TODO::have multiple instances of deflazy things with programmatically controlled dependencies
 
-
+;;tree -> ([name|(name nick)] (&optional *env*) &rest trees)
+(defparameter *tree*
+  #+nil
+  '((test2 . top)
+    ((test0 . test0)
+     ((quux . quux-0)))
+    ((test1 . test1)
+     ((quux . quux-1))))
+  '(dummy-root ()
+    (test2 ()
+     (test0 ()
+      (quux ()))
+     ((test1 . test9) ()
+      (foobar ())))))
+(defun walk-tree-stop-before-env (&optional (tree *tree*))
+  ;;FIXME::misnomer, just collects names and nicknames
+  (let ((pairs ()))
+    (labels ((walk (tree)
+	       (let ((first (car tree)))
+		 (unless (second tree)
+		   (push first pairs)
+		   (dolist (subtree (cddr tree))
+		     (walk subtree))))))
+      (walk tree))
+    pairs))
+(defun create-env (&optional (tree *tree*))
+  (make-env
+   :names-nicknames
+   (remove-if 'symbolp (walk-tree-stop-before-env tree))
+   :tree tree))
 (deflazy quux () 34)
 (deflazy test0 (quux) (+ quux 2))
 (deflazy test1 (quux) (+ quux 20))
