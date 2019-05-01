@@ -121,6 +121,13 @@
 		new-value)
 	      (error "no deflazy node defined named ~s" global-name))))))
 
+(defun dummy-node-function (dummy-node-name)
+  (if (boundp dummy-node-name)
+      (let ((old-value (symbol-value dummy-node-name)))
+	(%%refresh old-value)
+	old-value)
+      (make-instance 'node :value (cells:c? "nothing"))))
+
 ;;deflazy can take multiple forms:
 ;;(deflazy name ((nick name) other))
 ;;(deflazy (name :unchanged-if eql) ())
@@ -147,12 +154,7 @@
 	`(progn
 	   (setf (gethash ',name *function-stuff*)
 		 (cons ',scrambled-name ',dummy-redefinition-node))
-	   (defparameter ,dummy-redefinition-node
-	     (if (boundp ',dummy-redefinition-node)
-		 (let ((old-value (symbol-value ',dummy-redefinition-node)))
-		   (%%refresh old-value)
-		   old-value)
-		 (make-instance 'node :value (cells:c? "nothing"))))
+	   (defparameter ,dummy-redefinition-node (dummy-node-function ',dummy-redefinition-node))
 	   (defun ,scrambled-name2 (,self)
 	     (let ,let-args
 	       (declare (ignorable ,@lambda-args))
@@ -269,7 +271,10 @@
   (setf *env* (make-env))
   (dohash (name value) *function-stuff*
 	  (declare (ignorable name))
-	  (makunbound (cdr value))))
+	  (let ((sym (cdr value)))
+	    (makunbound sym)
+	    (setf (symbol-value sym)
+		  (dummy-node-function sym)))))
 
 ;;TODO::have multiple instances of deflazy things with programmatically controlled dependencies
 
@@ -362,22 +367,26 @@
   (let* ((env (create-env))
 	 (*tree* `(()
 		   ((test2 . top)
+		    #+nil
 		    ((test0 . test0)
 		     ((quux . quux-0)))
 		    ((test1 . test100)
 		     . ,env)))))
     (setf *enanv* (create-env *tree*))
-    
-    (setf *number* 10)
-    (%%refresh (get-node-local 'quux-0 :env *enanv*))
-    (print (getfnc 'test2 :env *enanv*))
-    
     (setf *number* 20)
-    (%%refresh (get-node-local 'quux-0 :env *enanv*))
+    #+nil
+    (progn
+      (setf *number* 10)
+      (%%refresh (get-node-local 'quux-0 :env *enanv*))
+      (print (getfnc 'test2 :env *enanv*))
+      
+      (setf *number* 20)
+      (%%refresh (get-node-local 'quux-0 :env *enanv*))
+      (print (getfnc 'test2 :env *enanv*))
+      
+      (setf *number* 30)
+      (%%refresh (get-node-local 'quux-0 :env *enanv*))
+      (print (getfnc 'test2 :env *enanv*)))
     (print (getfnc 'test2 :env *enanv*))
-    
-    (setf *number* 30)
-    (%%refresh (get-node-local 'quux-0 :env *enanv*))
-    (print (getfnc 'test2 :env *enanv*))
-
     env))
+;;FIXME::add error checking, name collisions
