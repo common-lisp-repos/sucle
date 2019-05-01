@@ -8,7 +8,7 @@
 
 (in-package :deflazy)
 
-(defvar *stuff* (make-hash-table :test 'eq))
+(defvar *env* (make-hash-table :test 'eq))
 (eval-always
   (defvar *function-stuff* (make-hash-table :test 'eq)))
 
@@ -25,15 +25,15 @@
 			(list (second x))))
 		    deps))))
 
-(defun get-node (name)
-  (multiple-value-bind (value existsp) (gethash name *stuff*)
+(defun get-node (name &key (env *env*))
+  (multiple-value-bind (value existsp) (gethash name env)
     (if existsp
 	value
 	(progn
 	  (multiple-value-bind (fun existsp) (gethash name *function-stuff*)
 	    (if existsp
-		(let ((new-value (funcall (car fun))))
-		  (setf (gethash name *stuff*)
+		(let ((new-value (funcall (car fun) :env env)))
+		  (setf (gethash name env)
 			new-value)
 		  new-value)
 		(error "no deflazy node defined named ~s" name)))))))
@@ -52,14 +52,15 @@
 	      (setf unchanged-if nick))))
     (multiple-value-bind (lambda-args names)
 	(separate-bindings deps)
-       (let ((let-args (mapcar (lambda (lambda-arg name)
+      (let ((let-args (mapcar (lambda (lambda-arg name)
 				`(,lambda-arg (getfnc ',name)))
 			      lambda-args
 			      names))
 	    (dummy-redefinition-node (symbolicate2 `("%*%" ,name "-deflazy-redefine%*%")))
 	    (scrambled-name (symbolicate2 `("%*%deflazy-function-" ,name "-deflazy-function%*%")))
 	    (scrambled-name2 (symbolicate2
-			      `("%*%deflazy-cell-function-" ,name "-deflazy-cell-function%*%"))))
+			      `("%*%deflazy-cell-function-" ,name "-deflazy-cell-function%*%")))
+	    (self (gensym)))
 	`(progn
 	   (setf (gethash ',name *function-stuff*)
 		 (cons ',scrambled-name ',dummy-redefinition-node))
@@ -69,14 +70,14 @@
 		   (%%refresh old-value)
 		   old-value)
 		 (make-instance 'node :value (cells:c? "nothing"))))
-	   (defun ,scrambled-name2 (self)
+	   (defun ,scrambled-name2 (,self)
 	     (let ,let-args
 	       (declare (ignorable ,@lambda-args))
-	       (node-update-p self)
+	       (node-update-p ,self)
 	       (node-update-p ,dummy-redefinition-node)
 	       (locally
 		   ,@gen-forms)))
-	   (defun ,scrambled-name ()
+	   (defun ,scrambled-name (&key (env *env*))
 	     (make-instance
 	      ',(ecase unchanged-if
 		  ((nil) 'node)
@@ -84,22 +85,23 @@
 		  (= 'node-=))
 	      :value 
 	      (cells:c?_
-		(,scrambled-name2 cells:self)))))))))
+		(let ((*env* env))
+		  (,scrambled-name2 cells:self))))))))))
 
 (defparameter *refresh* (make-hash-table :test 'eq))
 (defparameter *refresh-lock* (bordeaux-threads:make-recursive-lock "refresh"))
-(defun refresh (name &optional (main-thread nil))
+(defun refresh (name main-thread &key (env *env*))
   (if main-thread
-      (%refresh name)
+      (%refresh name :env env)
       (bordeaux-threads:with-recursive-lock-held (*refresh-lock*)
 	(setf (gethash name *refresh*) t))))
-(defun flush-refreshes ()
+(defun flush-refreshes (&key (env *env*))
   (bordeaux-threads:with-recursive-lock-held (*refresh-lock*)
     (let ((length (hash-table-count *refresh*)))
       (unless (zerop length)
 	(dohash (name value) *refresh*
 		(declare (ignore value))
-		(%refresh name))
+		(%refresh name :env env))
 	(clrhash *refresh*)))))
 
 (defgeneric cleanup-node-value (object))
@@ -141,12 +143,13 @@
 	  :accessor node-value
 	  :cell t)))
 
-(defun getfnc (name)
-  (%getfnc (get-node name)))
+(defun getfnc (name &key (env *env*))
+  (%getfnc (get-node name :env env)))
 (defun %getfnc (node)
   (node-update-p node)
   (node-value node))
 
+#+nil
 (defun (setf %getfnc) (new node)
   (setf (node-value node) new))
 
@@ -155,8 +158,8 @@
     ;;(print old-value)
     (cleanup-node-value old-value)))
 
-(defun %refresh (name)
-  (%%refresh (get-node name)))
+(defun %refresh (name &key (env *env*))
+  (%%refresh (get-node name :env env)))
 (defun %%refresh (node)
   (incf (node-update-p node)))
 
@@ -169,9 +172,11 @@
 
 ;;FIXME::does not actually work, or does it?
 ;;Does not clean up cells, TODO?
-(defun destroy-all ()
+(defun destroy-all (&key (env *env*))
   (cells::cells-reset)
-  (clrhash *stuff*)
+  (clrhash env)
   (dohash (name value) *function-stuff*
 	  (declare (ignorable name))
 	  (makunbound (cdr value))))
+
+;;TODO::have multiple instances of deflazy things with programmatically controlled dependencies

@@ -221,7 +221,8 @@ gl_FragColor.a = opacity * fin.a;
     arr))
 (write-to-color-lookup 'color-fun)
 (defun change-color-lookup (color-fun)
-  (application::refresh 'color-lookup)
+  ;;FIXME::does it matter what thread refresh color-lookup is called in?
+  (application::refresh 'color-lookup nil)
   (write-to-color-lookup color-fun))
 (glhelp:deflazy-gl color-lookup (text-shader)
   (glhelp::use-gl-program text-shader)
