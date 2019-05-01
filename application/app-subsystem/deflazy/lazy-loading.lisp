@@ -13,6 +13,7 @@
    (cells-nodes
     (make-hash-table :test 'eq))
    (names-nicknames nil)
+   (nicknames-names nil)
    (tree nil)))
 
 (defparameter *env* (make-env))
@@ -36,6 +37,13 @@
       (if thing
 	  (name-pair-nick thing)
 	  name))))
+(defun un-nicknamify (nick env)
+  (let ((alist (env-nicknames-names env)))
+    ;;(print (list name alist))
+    (let ((thing (assoc nick alist)))
+      (if thing
+	  (name-pair-nick thing)
+	  nick))))
 
 (defun next-env (name env)
   (let* ((tree (env-tree env))
@@ -46,16 +54,22 @@
 	maybe-env
 	(create-env subtree
 		    (remove-if 'symbolp (collect-tree-names subtree))
+		    (env-nicknames-names env)
 		    #+nil
 		    (nickname-foo (tree-name subtree)
 				  (env-names-nicknames env))
 		    (env-cells-nodes env)))))
 
 (defun create-env (&optional (tree *tree*) (old-nicknames (list (nickname-foo (tree-name tree) nil)))
+		     (nicknames-names
+		      (mapcar (lambda (x)
+				(cons (cdr x) (car x)))
+			      (collect-tree-names tree)))
 		     (cells-nodes (make-hash-table :test 'eq)))
   (make-env
    :cells-nodes cells-nodes
    :tree tree
+   :nicknames-names nicknames-names
    :names-nicknames old-nicknames))
 
 (eval-always
@@ -79,26 +93,33 @@
 
 (defun get-node (global-name &key (env *env*))
   (let ((local-name (nicknamify global-name env)))
-    (multiple-value-bind (value existsp)
-	(get-env-var local-name env)
-      (if existsp
-	  value
-	  (multiple-value-bind (fun existsp)
-	      (gethash global-name *function-stuff*)
-	    (if existsp
-		(let* (;;FIXME::the cons cell for representing the name/nickname pair is undocumented
-		       ;;(next-stack-value (make-name-pair global-name local-name))
-		       (new-value
-			(let (#+nil
-			      (*name-stack*
-			       (cons next-stack-value *name-stack*))
-			      (*env* env))
-			  (funcall (car fun)))))
-		  (set-env-var local-name
-			       new-value
-			       env)
-		  new-value)
-		(error "no deflazy node defined named ~s" global-name)))))))
+    (get-node-1 global-name local-name env)))
+
+(defun get-node-local (local-name &key (env *env*))
+  (let ((global-name (un-nicknamify local-name env)))
+    (get-node-1 global-name local-name env)))
+
+(defun get-node-1 (global-name local-name env)
+  (multiple-value-bind (value existsp)
+      (get-env-var local-name env)
+    (if existsp
+	value
+	(multiple-value-bind (fun existsp)
+	    (gethash global-name *function-stuff*)
+	  (if existsp
+	      (let* (;;FIXME::the cons cell for representing the name/nickname pair is undocumented
+		     ;;(next-stack-value (make-name-pair global-name local-name))
+		     (new-value
+		      (let (#+nil
+			    (*name-stack*
+			     (cons next-stack-value *name-stack*))
+			    (*env* env))
+			(funcall (car fun)))))
+		(set-env-var local-name
+			     new-value
+			     env)
+		new-value)
+	      (error "no deflazy node defined named ~s" global-name))))))
 
 ;;deflazy can take multiple forms:
 ;;(deflazy name ((nick name) other))
@@ -314,9 +335,10 @@
   (if (typep name-pair 'name-pair)
       (cons name-pair value)
       value))
-(deflazy quux () 34)
-(deflazy test0 (quux) (+ quux 2))
-(deflazy test1 (quux) (+ quux 20))
+(defparameter *number* 20)
+(deflazy quux () *number*)
+(deflazy test0 (quux) quux)
+(deflazy test1 (quux) quux)
 (deflazy test2 (test0 test1) (+ test0 test1))
 
 ;;(defparameter *tree*)
@@ -328,3 +350,6 @@
 (defun test23 ()
   (reset-enanv)
   (test34 *enanv*))
+(defun another-test ()
+  (%%refresh (get-node-local 'quux-0 :env *enanv*))
+  (%%refresh (get-node-local 'quux-1 :env *enanv*)))
