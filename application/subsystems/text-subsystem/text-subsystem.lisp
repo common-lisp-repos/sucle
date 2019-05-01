@@ -118,7 +118,7 @@ gl_FragColor.a = opacity * fin.a;
 (defmacro with-text-shader ((uniform-fun) &body body)
   (with-gensyms (program)
     `(progn
-         (getfnc 'render-normal-text-indirection)
+         (render-normal-text-indirection)
 	 (getfnc 'color-lookup)
 	 (let ((,program (getfnc 'text-shader)))
 	   (glhelp::use-gl-program ,program)
@@ -305,8 +305,23 @@ gl_FragColor = value_out;
 ;;;Round up to next power of two
 (defun power-of-2-ceiling (n)
   (ash 1 (ceiling (log n 2))))
-(glhelp:deflazy-gl render-normal-text-indirection ((w application::w) (h application::h)
-						   (upw indirection-width) (uph indirection-height))
+
+(defparameter *render-text-dirty* nil)
+(glhelp:deflazy-gl render-normal-text-indirection
+    ((w application::w) (h application::h)
+     (upw indirection-width) (uph indirection-height)
+     block-width block-height)
+  (setf *render-text-dirty*
+	(list w h upw uph block-width block-height)))
+;;FIXME::nasty organization in order to avoid getfnc interfering with kenny-tilton's cells.
+;;*render-text-dirty* acts as a channel for commands as well as a flag. Bad?
+(defun render-normal-text-indirection ()
+  (getfnc 'render-normal-text-indirection)
+  (when *render-text-dirty*
+    (apply '%render-normal-text-indirection *render-text-dirty*)
+    (setf *render-text-dirty* nil)
+    ))
+(defun %render-normal-text-indirection (w h upw uph block-width block-height)
   (ecase *indirection-what-type*
     (:framebuffer
      (let ((refract (getfnc 'indirection-shader)))
@@ -317,8 +332,8 @@ gl_FragColor = value_out;
 	  (load-time-value (nsb-cga:identity-matrix))
 	  nil)
 	 (gl:uniformf (uniform 'size)
-		      (/ w (deflazy::getfnc 'block-width))
-		      (/ h (deflazy::getfnc 'block-height)))))
+		      (/ w block-width)
+		      (/ h block-height))))
      (gl:disable :cull-face)
      (gl:disable :depth-test)
      (gl:disable :blend)
@@ -330,8 +345,8 @@ gl_FragColor = value_out;
     (:texture-2d
      (gl:bind-texture :texture-2d (get-indirection-texture))
      (cffi:with-foreign-objects ((data :uint8 (* upw uph 4)))
-       (let* ((tempx (floatify (* upw (deflazy::getfnc 'block-width))))
-	      (tempy (floatify (* uph (deflazy::getfnc 'block-height))))
+       (let* ((tempx (floatify (* upw block-width)))
+	      (tempy (floatify (* uph block-height)))
 	      (bazx (floatify (/ tempx w)))
 	      (bazy (floatify (/ tempy h)))
 	      (wfloat (floatify w))
