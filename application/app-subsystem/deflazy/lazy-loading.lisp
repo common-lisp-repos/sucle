@@ -32,7 +32,7 @@
 	(progn
 	  (multiple-value-bind (fun existsp) (gethash name *function-stuff*)
 	    (if existsp
-		(let ((new-value (funcall (car fun) :env env)))
+		(let ((new-value (funcall (car fun))))
 		  (setf (gethash name env)
 			new-value)
 		  new-value)
@@ -77,7 +77,7 @@
 	       (node-update-p ,dummy-redefinition-node)
 	       (locally
 		   ,@gen-forms)))
-	   (defun ,scrambled-name (&key (env *env*))
+	   (defun ,scrambled-name ()
 	     (make-instance
 	      ',(ecase unchanged-if
 		  ((nil) 'node)
@@ -85,8 +85,7 @@
 		  (= 'node-=))
 	      :value 
 	      (cells:c?_
-		(let ((*env* env))
-		  (,scrambled-name2 cells:self))))))))))
+		(,scrambled-name2 cells:self)))))))))
 
 (defparameter *refresh* (make-hash-table :test 'eq))
 (defparameter *refresh-lock* (bordeaux-threads:make-recursive-lock "refresh"))
