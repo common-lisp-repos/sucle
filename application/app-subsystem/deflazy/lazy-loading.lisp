@@ -9,8 +9,23 @@
 (in-package :deflazy)
 
 (defvar *env* (make-hash-table :test 'eq))
+(defun set-env-var (name value env name-stack)
+  ;;FIXME::use the name stack to find the correct location
+  (declare (ignorable name-stack))
+  (let ((hash env))
+    (setf (gethash name hash)
+	  value)))
+(defun get-env-var (name env name-stack)
+  ;;FIXME::use the name stack to find the correct location
+  (declare (ignorable name-stack))
+  (let ((hash env))
+    (gethash name hash)))
+
 (eval-always
+  ;;Holds the global symbol to function bindings
   (defvar *function-stuff* (make-hash-table :test 'eq)))
+
+(defparameter *name-stack* nil)
 
 (eval-always
   (defun separate-bindings (deps)
@@ -25,18 +40,30 @@
 			(list (second x))))
 		    deps))))
 
+(defun resolve-function-binding (name env name-stack)
+  (declare (ignorable env name-stack))
+  ;;take into account the environment, name-stack, and name to find the nickname
+  ;;
+  name)
+
 (defun get-node (name &key (env *env*))
-  (multiple-value-bind (value existsp) (gethash name env)
+  (multiple-value-bind (value existsp)
+      (get-env-var name env *name-stack*)
     (if existsp
 	value
 	(progn
-	  (multiple-value-bind (fun existsp) (gethash name *function-stuff*)
-	    (if existsp
-		(let ((new-value (funcall (car fun))))
-		  (setf (gethash name env)
-			new-value)
-		  new-value)
-		(error "no deflazy node defined named ~s" name)))))))
+	  (let ((global-function-name (resolve-function-binding name env *name-stack*)))
+	    (multiple-value-bind (fun existsp)
+		(gethash global-function-name *function-stuff*)
+	      (if existsp
+		  (let ((new-value
+			 (let ((*name-stack* (cons (cons name global-function-name)
+						   *name-stack*))
+			       (*env* env))
+			   (funcall (car fun)))))
+		    (set-env-var name new-value env *name-stack*)
+		    new-value)
+		  (error "no deflazy node defined named ~s" name))))))))
 
 ;;deflazy can take multiple forms:
 ;;(deflazy name ((nick name) other))
@@ -73,19 +100,27 @@
 	   (defun ,scrambled-name2 (,self)
 	     (let ,let-args
 	       (declare (ignorable ,@lambda-args))
+	       (injected-fun)
 	       (node-update-p ,self)
 	       (node-update-p ,dummy-redefinition-node)
 	       (locally
 		   ,@gen-forms)))
 	   (defun ,scrambled-name ()
-	     (make-instance
-	      ',(ecase unchanged-if
-		  ((nil) 'node)
-		  (eql 'node-eql)
-		  (= 'node-=))
-	      :value 
-	      (cells:c?_
-		(,scrambled-name2 cells:self)))))))))
+	     (let ((captured-name-stack *name-stack*)
+		   (captured-env *env*))
+	       (make-instance
+		',(ecase unchanged-if
+		    ((nil) 'node)
+		    (eql 'node-eql)
+		    (= 'node-=))
+		:value 
+		(cells:c?_
+		  (let ((*env* captured-env)
+			(*name-stack* captured-name-stack))
+		    (,scrambled-name2 cells:self)))))))))))
+
+(defun injected-fun ()
+  (print *name-stack*))
 
 (defparameter *refresh* (make-hash-table :test 'eq))
 (defparameter *refresh-lock* (bordeaux-threads:make-recursive-lock "refresh"))
