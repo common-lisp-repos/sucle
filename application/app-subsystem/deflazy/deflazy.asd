@@ -4,6 +4,7 @@
   :description "lazy loading reloading on changes"
   :depends-on (#:utility
 	       #:bordeaux-threads
-	       #:cells)
+	       #:cells
+	       #:uncommon-lisp)
   :components
   ((:file "lazy-loading")))

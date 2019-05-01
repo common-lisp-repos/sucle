@@ -8,18 +8,37 @@
 
 (in-package :deflazy)
 
-(defvar *env* (make-hash-table :test 'eq))
-(defun set-env-var (name value env name-stack)
-  ;;FIXME::use the name stack to find the correct location
-  (declare (ignorable name-stack))
-  (let ((hash env))
+(struct-to-clos:struct->class
+ (defstruct env
+   (cells-nodes
+    (make-hash-table :test 'eq))
+   (names-nicknames nil)
+   (next-env (lambda (new-depth this)
+	       (declare (ignorable new-depth))
+	       this))))
+(defparameter *env* (make-env))
+
+(deflazy quux () 34)
+(deflazy test0 (quux) (+ quux 2))
+(deflazy test1 (quux) (+ quux 20))
+(deflazy test2 (test0 test1) (+ test0 test1))
+
+(defun set-env-var (name value env)
+  (let ((hash (env-cells-nodes env)))
     (setf (gethash name hash)
 	  value)))
-(defun get-env-var (name env name-stack)
-  ;;FIXME::use the name stack to find the correct location
-  (declare (ignorable name-stack))
-  (let ((hash env))
+(defun get-env-var (name env)
+  (let ((hash (env-cells-nodes env)))
     (gethash name hash)))
+
+(defun resolve-function-binding (name env)
+  (let ((cell (assoc name (env-names-nicknames env))))
+    (if cell
+	(cdr cell)
+	name)))
+
+(defun next-env (new-depth env)
+  (funcall (env-next-env env) new-depth env))
 
 (eval-always
   ;;Holds the global symbol to function bindings
@@ -40,28 +59,25 @@
 			(list (second x))))
 		    deps))))
 
-(defun resolve-function-binding (name env name-stack)
-  (declare (ignorable env name-stack))
-  ;;take into account the environment, name-stack, and name to find the nickname
-  ;;
-  name)
-
 (defun get-node (name &key (env *env*))
   (multiple-value-bind (value existsp)
-      (get-env-var name env *name-stack*)
+      (get-env-var name env)
     (if existsp
 	value
 	(progn
-	  (let ((global-function-name (resolve-function-binding name env *name-stack*)))
+	  (let ((global-function-name (resolve-function-binding name env)))
 	    (multiple-value-bind (fun existsp)
 		(gethash global-function-name *function-stuff*)
 	      (if existsp
-		  (let ((new-value
-			 (let ((*name-stack* (cons (cons name global-function-name)
-						   *name-stack*))
-			       (*env* env))
-			   (funcall (car fun)))))
-		    (set-env-var name new-value env *name-stack*)
+		  (let* ((next-stack-value (cons name global-function-name))
+			 (new-value
+			  (let ((*name-stack*
+				 (cons next-stack-value *name-stack*))
+				(*env* (next-env next-stack-value env)))
+			    (funcall (car fun)))))
+		    (set-env-var name
+				 new-value
+				 env)
 		    new-value)
 		  (error "no deflazy node defined named ~s" name))))))))
 
