@@ -18,11 +18,6 @@
 	       this))))
 (defparameter *env* (make-env))
 
-(deflazy quux () 34)
-(deflazy test0 (quux) (+ quux 2))
-(deflazy test1 (quux) (+ quux 20))
-(deflazy test2 (test0 test1) (+ test0 test1))
-
 (defun set-env-var (name value env)
   (let ((hash (env-cells-nodes env)))
     (setf (gethash name hash)
@@ -230,3 +225,9 @@
 	  (makunbound (cdr value))))
 
 ;;TODO::have multiple instances of deflazy things with programmatically controlled dependencies
+
+
+(deflazy quux () 34)
+(deflazy test0 (quux) (+ quux 2))
+(deflazy test1 (quux) (+ quux 20))
+(deflazy test2 (test0 test1) (+ test0 test1))
